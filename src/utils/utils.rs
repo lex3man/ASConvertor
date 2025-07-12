@@ -98,12 +98,12 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
 
     let sets = Settings {
         total: 0,
-        max_speed: 170,
+        max_speed: 110,
     };
     for t in point_types_captions {
         let mut pt = PointType {
             caption: t.to_string(),
-            default_rad: 50,
+            default_rad: 90,
             is_open: false,
             ghost: false,
             in_game: true,
@@ -112,33 +112,41 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
         };
         match t {
             "WPV" => {
+                pt.default_rad = 200;
                 pt.is_open = true;
                 pt.in_game = false;
             }
             "WPM" => {
+                pt.max_speed = 90;
+                pt.default_rad = 50;
                 pt.arrow_threshold = 800;
             }
             "WPS" => {
-                pt.default_rad = 10;
+                pt.default_rad = 50;
+                pt.max_speed = 90;
                 pt.arrow_threshold = 1000;
             }
             "WPE" => {
+                pt.max_speed = 90;
                 pt.arrow_threshold = 5000;
             }
             "DSS" => {
+                pt.default_rad = 200;
                 pt.in_game = false;
                 pt.is_open = true;
             }
             "ASS" => {
+                pt.max_speed = 90;
                 pt.arrow_threshold = 1000;
             }
             "FZ" => {
-                pt.default_rad = 30;
+                pt.max_speed = 30;
+                pt.default_rad = 90;
                 pt.is_open = true;
-                pt.max_speed = 50;
             }
             "WPC" => {
                 pt.is_open = true;
+                pt.max_speed = 90;
                 pt.ghost = true;
             }
             _ => {}
