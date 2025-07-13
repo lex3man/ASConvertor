@@ -9,6 +9,3 @@ serde_json = "1"
 calamine = "0.25.0"
 toml = "0.8.19"
 clap = { version = "4.5", features = ["derive"] }
-
-[target.x86_64-unknown-linux-gnu]
-linker = "x86_64-linux-musl-gcc"

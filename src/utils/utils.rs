@@ -3,7 +3,7 @@ use std::{io::Write, path::Path};
 use calamine::{open_workbook, DataType, Reader, Xlsx};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-
+use crate::utils::types::{get_point_types, PointType};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct Point {
@@ -19,8 +19,6 @@ struct Point {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct Race {
     code: String,
-    race_number: String,
-    serial_number: String,
     event_name: String,
     race_name: String,
     sets: Settings,
@@ -31,17 +29,6 @@ struct Race {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct Settings {
     total: u16,
-    max_speed: u16,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
-struct PointType {
-    caption: String,
-    default_rad: u16,
-    is_open: bool,
-    ghost: bool,
-    in_game: bool,
-    arrow_threshold: u32,
     max_speed: u16,
 }
 
@@ -75,7 +62,7 @@ struct PointTypes {
     types: Vec<PointType>,
 }
 
-pub fn convert(file: &str, path: &str) -> Result<(), String>{
+pub fn convert(file: &str, path: &str, dataset: &str) -> Result<(), String>{
     
     let mut wb: Xlsx<_> = open_workbook(file).map_err(|e: calamine::XlsxError| e.to_string())?;
     let sheets_names = wb.sheet_names();
@@ -90,69 +77,13 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
         max_speed: 0,
     };
 
-    let point_types_captions = [
-        "WPV", "WPM", "WPS", "WPE", "DSS", "FZ", "DZ", "WPC", "ASS", "default",
-    ];
-    let mut point_types: Vec<PointType> = vec![];
+    let point_types = get_point_types(dataset);
     let mut races: Vec<Race> = vec![];
 
     let sets = Settings {
         total: 0,
         max_speed: 110,
     };
-    for t in point_types_captions {
-        let mut pt = PointType {
-            caption: t.to_string(),
-            default_rad: 90,
-            is_open: false,
-            ghost: false,
-            in_game: true,
-            arrow_threshold: 800,
-            max_speed: sets.max_speed,
-        };
-        match t {
-            "WPV" => {
-                pt.default_rad = 200;
-                pt.is_open = true;
-                pt.in_game = false;
-            }
-            "WPM" => {
-                pt.max_speed = 90;
-                pt.default_rad = 50;
-                pt.arrow_threshold = 800;
-            }
-            "WPS" => {
-                pt.default_rad = 50;
-                pt.max_speed = 90;
-                pt.arrow_threshold = 1000;
-            }
-            "WPE" => {
-                pt.max_speed = 90;
-                pt.arrow_threshold = 5000;
-            }
-            "DSS" => {
-                pt.default_rad = 200;
-                pt.in_game = false;
-                pt.is_open = true;
-            }
-            "ASS" => {
-                pt.max_speed = 90;
-                pt.arrow_threshold = 1000;
-            }
-            "FZ" => {
-                pt.max_speed = 30;
-                pt.default_rad = 90;
-                pt.is_open = true;
-            }
-            "WPC" => {
-                pt.is_open = true;
-                pt.max_speed = 90;
-                pt.ghost = true;
-            }
-            _ => {}
-        }
-        point_types.push(pt);
-    }
 
     let filename = Path::new(file)
         .file_stem()
@@ -162,8 +93,6 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
     for sheet_name in sheets_names {
         let mut race = Race {
             code: "0000".to_string(),
-            race_number: "0".to_string(),
-            serial_number: "000000000000".to_string(),
             event_name: filename.to_string(),
             race_name: sheet_name.clone(),
             sets: sets.clone(),
@@ -172,24 +101,8 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
         };
         let range = wb.worksheet_range(&sheet_name).unwrap();
 
+        let mut cords = "".to_string();
         for cell in range.used_cells() {
-            if cell.0 == 1 {
-                match cell.1 {
-                    0 => {
-                        race.code = cell.2.get_string().unwrap().to_string();
-                    }
-                    1 => {
-                        race.race_number = cell.2.get_float().unwrap().to_string();
-                    }
-                    4 => {
-                        race.serial_number = cell.2.get_float().unwrap().to_string();
-                    }
-                    5 => {
-                        race.event_name = cell.2.get_string().unwrap().to_string();
-                    }
-                    _ => {}
-                }
-            }
             if cell.0 > 2 {
                 match cell.1 {
                     0 => unsafe {
@@ -199,35 +112,95 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
                         point.name = cell.2.get_string().unwrap().to_string();
                     }
                     2 => {
-                        point.r#type = cell.2.get_string().unwrap().to_string();
+                        let t = cell.2.get_string().unwrap().to_string();
+                        point.max_speed = 0;
+                        if t.starts_with("FZ") {
+                            point.r#type = "FZ".to_string();
+                            if t.len() > 2 {
+                                point.max_speed = t.replace("FZ", "").parse::<u16>().unwrap();
+                            }
+                        } else if t.starts_with("DZ") {
+                            point.r#type = "DZ".to_string();
+                            
+                        } else {
+                            point.r#type = t;
+                        }
+                        
                     }
-                    3 => unsafe {
+                    3 => { cords = cell.2.get_string().unwrap().to_string(); },
+                    4 => {
+                        let dm_parts: Vec<&str> = cords.split('°').collect();
+                        if dm_parts.len() != 2 {
+                            return Err("Invalid degrees and minutes format".to_string());
+                        }
+
+                        let degrees_str = dm_parts[0];
+                        let minutes_str = dm_parts[1].replace(',', ".");
+
+                        let degrees = degrees_str.trim().parse::<f64>().map_err(|_| "Invalid degrees".to_string())?;
+                        let minutes = minutes_str.trim().parse::<f64>().map_err(|_| "Invalid minutes".to_string())?;
+                        if cell.2.get_string().unwrap().contains("N") {
+                            point.lat = (degrees + minutes / 60.0) as f32;
+                        } else {
+                            point.lat = (-degrees - minutes / 60.0) as f32;
+                        }
+                    },
+                    5 => { cords = cell.2.get_string().unwrap().to_string(); },
+                    6 => {
+                        let dm_parts: Vec<&str> = cords.split('°').collect();
+                        if dm_parts.len() != 2 {
+                            return Err("Invalid degrees and minutes format".to_string());
+                        }
+
+                        let degrees_str = dm_parts[0];
+                        let minutes_str = dm_parts[1].replace(',', ".");
+
+                        let degrees = degrees_str.trim().parse::<f64>().map_err(|_| "Invalid degrees".to_string())?;
+                        let minutes = minutes_str.trim().parse::<f64>().map_err(|_| "Invalid minutes".to_string())?;
+                        if cell.2.get_string().unwrap().contains("E") {
+                            point.lon = (degrees + minutes / 60.0) as f32;
+                        } else {
+                            point.lon = (-degrees - minutes / 60.0) as f32;
+                        }
+                    },
+                    7 => unsafe {
                         point.odo =
                             (cell.2.get_float().unwrap() * 1000.0).to_int_unchecked::<u32>();
-                    },
-                    4 => {
-                        let coordinates = cell.2.get_string().unwrap().to_string();
-                        let coords = convert_coordinates(&coordinates).unwrap();
-                        if coords.len() > 1 {
-                            let lat = coords[0];
-                            let lon = coords[1];
-                            point.lat = lat as f32;
-                            point.lon = lon as f32;
+                        if point.max_speed == 0 {
                             point.max_speed = sets.max_speed;
                             for t in race.types.clone() {
                                 if t.caption == point.r#type {
                                     point.max_speed = t.max_speed;
                                 }
                             }
-                            race.points.push(point.clone());
                         }
+                        race.points.push(point.clone());
                         if cell.0 == range.rows().count() - 1 {
                             race.points.push(point.clone());
-                            race.sets.total = (range.rows().count() - 3).try_into().unwrap();
-                            // create_file(race.clone());
                             races.push(race.clone())
                         }
-                    }
+                    },
+                    // 4 => {
+                    //     let coordinates = cell.2.get_string().unwrap().to_string();
+                    //     let coords = convert_coordinates(&coordinates).unwrap();
+                    //     if coords.len() > 1 {
+                    //         let lat = coords[0];
+                    //         let lon = coords[1];
+                    //         point.lat = lat as f32;
+                    //         point.lon = lon as f32;
+                    //         point.max_speed = sets.max_speed;
+                    //         for t in race.types.clone() {
+                    //             if t.caption == point.r#type {
+                    //                 point.max_speed = t.max_speed;
+                    //             }
+                    //         }
+                    //         race.points.push(point.clone());
+                    //     }
+                    //     if cell.0 == range.rows().count() - 1 {
+                    //         race.points.push(point.clone());
+                    //         races.push(race.clone())
+                    //     }
+                    // }
                     _ => {}
                 }
             }
@@ -238,46 +211,48 @@ pub fn convert(file: &str, path: &str) -> Result<(), String>{
     Ok(())
 }
 
-fn convert_coordinates(input: &str) -> Result<Vec<f64>, String> {
-    let parts: Vec<&str> = input.split(';').collect();
-    if parts.len() != 2 {
-        return Err("Invalid input format".to_string());
-    }
 
-    let latitude = parse_coordinate(parts[0])?;
-    let longitude = parse_coordinate(parts[1])?;
+// fn convert_coordinates(input: &str) -> Result<Vec<f64>, String> {
+//     let parts: Vec<&str> = input.split(';').collect();
+//     if parts.len() != 2 {
+//         return Err("Invalid input format".to_string());
+//     }
 
-    Ok(vec![latitude, longitude])
-}
+//     let latitude = parse_coordinate(parts[0])?;
+//     let longitude = parse_coordinate(parts[1])?;
 
-fn parse_coordinate(value: &str) -> Result<f64, String> {
-    let components: Vec<&str> = value.split_whitespace().collect();
-    if components.len() != 2 {
-        return Err("Invalid coordinate format".to_string());
-    }
-    let degrees_minutes = components[0];
-    let direction = components[1].trim();
+//     Ok(vec![latitude, longitude])
+// }
 
-    let dm_parts: Vec<&str> = degrees_minutes.split('°').collect();
-    if dm_parts.len() != 2 {
-        return Err("Invalid degrees and minutes format".to_string());
-    }
 
-    let degrees_str = dm_parts[0];
-    let minutes_str = dm_parts[1].replace(',', ".");
+// fn parse_coordinate(value: &str) -> Result<f64, String> {
+//     let components: Vec<&str> = value.split_whitespace().collect();
+//     if components.len() != 2 {
+//         return Err("Invalid coordinate format".to_string());
+//     }
+//     let degrees_minutes = components[0];
+//     let direction = components[1].trim();
 
-    let degrees = degrees_str.parse::<f64>().map_err(|_| "Invalid degrees".to_string())?;
-    let minutes = minutes_str.parse::<f64>().map_err(|_| "Invalid minutes".to_string())?;
+//     let dm_parts: Vec<&str> = degrees_minutes.split('°').collect();
+//     if dm_parts.len() != 2 {
+//         return Err("Invalid degrees and minutes format".to_string());
+//     }
 
-    let sign = match direction {
-        "N" | "E" => 1.0,
-        "S" | "W" => -1.0,
-        _ => return Err("Invalid direction".to_string()),
-    };
+//     let degrees_str = dm_parts[0];
+//     let minutes_str = dm_parts[1].replace(',', ".");
 
-    let decimal = degrees + minutes / 60.0;
-    Ok(sign * decimal)
-}
+//     let degrees = degrees_str.parse::<f64>().map_err(|_| "Invalid degrees".to_string())?;
+//     let minutes = minutes_str.parse::<f64>().map_err(|_| "Invalid minutes".to_string())?;
+
+//     let sign = match direction {
+//         "N" | "E" => 1.0,
+//         "S" | "W" => -1.0,
+//         _ => return Err("Invalid direction".to_string()),
+//     };
+
+//     let decimal = degrees + minutes / 60.0;
+//     Ok(sign * decimal)
+// }
 
 
 fn create_file(days: Vec<Day>, race_params: RaceParams, point_types: PointTypes, path: &str, filename: &str) {
@@ -344,7 +319,7 @@ mod test {
 
         use super::*;
 
-        let _ = convert("data_for_config.xlsx", "output").map_err(|e| e.to_string())?;
+        let _ = convert("data_for_config.xlsx", "output", "dataset.ini").map_err(|e| e.to_string())?;
         Ok(())
     }
 
