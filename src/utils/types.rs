@@ -1,4 +1,7 @@
-use std::{fs::File, io::{BufRead, BufReader}};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -35,7 +38,9 @@ pub fn get_point_types(dataset_path: &str) -> Vec<PointType> {
                 max_on_race = line.split("=").nth(1).unwrap().parse::<u16>().unwrap();
             } else if line.starts_with("[point_types.") {
                 let point_type: Vec<&str> = line.split(".").collect();
-                if point_type.len() > 1 { name = point_type[1].replace("]", "") }
+                if point_type.len() > 1 {
+                    name = point_type[1].replace("]", "")
+                }
                 if name == "WPV" || name == "DSS" {
                     max_speed = max_off_race;
                 } else {
@@ -54,11 +59,11 @@ pub fn get_point_types(dataset_path: &str) -> Vec<PointType> {
             } else if line.starts_with("-") {
                 let pt = PointType {
                     caption: name,
-                    default_rad: default_rad,
-                    is_open: is_open,
-                    in_game: in_game,
-                    arrow_threshold: arrow_threshold,
-                    max_speed: max_speed,
+                    default_rad,
+                    is_open,
+                    in_game,
+                    arrow_threshold,
+                    max_speed,
                     ghost: false,
                 };
                 point_types.push(pt.clone());
@@ -127,8 +132,9 @@ pub fn get_point_types(dataset_path: &str) -> Vec<PointType> {
                 _ => {}
             }
             point_types.push(pt);
-        }   
+        }
     }
 
     point_types
-}   
+}
+
